@@ -1,0 +1,1322 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>月度消费日历 · Monthly Expense Calendar</title>
+<!-- 主题"防闪烁"脚本：必须在样式生效前同步执行。
+     若等到页面末尾再设置主题，会先闪一下默认深色再跳到浅色。 -->
+<script>try{var _t=localStorage.getItem('mcal.theme.v1');if(_t)document.documentElement.dataset.theme=_t;}catch(e){}</script>
+<style>
+/* ================================================================
+   样式表：全部颜色/间距都走 CSS 变量，实现"一处定义、明暗两套"。
+   :root 定义深色（默认），[data-theme=light] 覆盖同名变量即可换肤，
+   HTML 里不需要为两套主题写任何重复样式。
+   ================================================================ */
+/* 深色主题变量：背景 → 卡片 → 边框 → 文字 → 强调色，形成视觉层级。 */
+:root{
+  --bg:#0F1419; --surface:#1A2129; --surface-2:#212A34; --border:#2A333D;
+  --text:#E6EDF3; --text-2:#8B949E; --accent:#F85149; --accent-2:#FF7B72;
+  --accent-soft:rgba(248,81,73,.14); --success:#3FB950; --warn:#D29922;
+  --shadow:0 8px 32px rgba(0,0,0,.45); --radius:10px; --radius-sm:6px;
+}
+/* 浅色主题：只覆盖变量值，所有组件样式自动跟着变。 */
+html[data-theme="light"]{
+  --bg:#F6F8FA; --surface:#FFFFFF; --surface-2:#F0F3F6; --border:#E1E6EB;
+  --text:#1F2328; --text-2:#6E7781; --accent:#D1242F; --accent-2:#CF222E;
+  --accent-soft:rgba(209,36,47,.09); --success:#1A7F37; --warn:#9A6700;
+  --shadow:0 8px 24px rgba(31,35,40,.10);
+}
+[hidden]{display:none!important}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0; background:var(--bg); color:var(--text);
+  font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei","Segoe UI",sans-serif;
+  font-size:14px; line-height:1.5; -webkit-font-smoothing:antialiased;
+}
+button,input,textarea,select{font:inherit;color:inherit}
+button{cursor:pointer}
+button:focus-visible,input:focus-visible,textarea:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.app{max-width:1520px;margin:0 auto;padding:20px 24px 48px;display:flex;flex-direction:column;gap:16px}
+.no-scroll{overflow:hidden}
+
+/* ---------- 顶部栏 ---------- */
+.topbar{display:flex;align-items:center;gap:18px;flex-wrap:wrap}
+.brand{display:flex;align-items:center;gap:10px;min-width:190px}
+.brand-logo{width:34px;height:34px;border-radius:9px;background:var(--accent-soft);border:1px solid var(--accent);display:grid;place-items:center;font-size:18px}
+.brand h1{margin:0;font-size:17px;font-weight:650;letter-spacing:.2px}
+.brand p{margin:0;font-size:11px;color:var(--text-2)}
+.month-nav{display:flex;align-items:center;gap:6px;margin-left:auto}
+.nav-btn{width:32px;height:32px;border-radius:8px;border:1px solid var(--border);background:var(--surface);display:grid;place-items:center;font-size:18px;line-height:1}
+.nav-btn:hover{background:var(--surface-2);border-color:var(--text-2)}
+.month-title{min-width:112px;text-align:center;font-size:16px;font-weight:650;font-variant-numeric:tabular-nums}
+.today-btn,.tool-btn{height:32px;padding:0 11px;border-radius:8px;border:1px solid var(--border);background:var(--surface);font-size:12px;color:var(--text-2)}
+.today-btn:hover,.tool-btn:hover{background:var(--surface-2);color:var(--text)}
+.tools{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+
+/* ---------- 汇总条 ---------- */
+.summary-row{display:grid;grid-template-columns:1.5fr 1fr 1fr 1fr 1.2fr;gap:10px}
+.stat{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:13px 16px;min-width:0}
+.stat .label{font-size:11px;color:var(--text-2);letter-spacing:.4px}
+.stat .value{font-size:21px;font-weight:680;font-variant-numeric:tabular-nums;margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.stat .value.money{color:var(--accent)}
+.stat .sub{font-size:11px;color:var(--text-2);margin-top:2px;min-height:16px}
+.stat .sub.up{color:var(--accent)} .stat .sub.down{color:var(--success)}
+
+/* ---------- 主体布局 ---------- */
+.layout{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:16px;align-items:start}
+.panel{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:14px;min-width:0}
+.panel-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;gap:10px}
+.panel-head h2{font-size:13px;font-weight:650;margin:0;color:var(--text)}
+.panel-head .hint{font-size:11px;color:var(--text-2)}
+
+/* ---------- 日历 ---------- */
+.weekdays{display:grid;grid-template-columns:repeat(7,minmax(0,1fr)) 92px;gap:6px;margin-bottom:6px}
+.weekdays div{text-align:center;font-size:11px;color:var(--text-2);font-weight:600;padding:2px 0}
+.weekdays .week-head{color:var(--accent);font-size:10px}
+.calendar-grid{display:flex;flex-direction:column;gap:6px}
+.week-row{display:grid;grid-template-columns:repeat(7,minmax(0,1fr)) 92px;gap:6px;min-height:118px}
+.day-cell{
+  position:relative;display:flex;flex-direction:column;gap:4px;min-width:0;
+  background:var(--surface-2);border:1px solid var(--border);border-radius:var(--radius-sm);
+  padding:7px;cursor:pointer;transition:background .15s,border-color .15s,transform .12s;
+}
+.day-cell:hover{background:var(--surface);border-color:var(--text-2)}
+.day-cell:active{transform:scale(.99)}
+.day-cell.selected{border-color:var(--accent);background:var(--accent-soft)}
+.day-cell.other{opacity:.42}
+.day-cell.other:hover,.day-cell.other.selected{opacity:.8}
+.cell-head{display:flex;align-items:center;gap:5px;min-height:20px}
+.day-num{font-size:13px;font-weight:640;font-variant-numeric:tabular-nums;line-height:1}
+.day-cell.today .day-num{background:var(--accent);color:#fff;border-radius:50%;width:20px;height:20px;display:grid;place-items:center;font-size:11px}
+.today-tag{font-size:9px;color:var(--accent);border:1px solid var(--accent);border-radius:999px;padding:0 4px;line-height:14px}
+.add-btn{margin-left:auto;width:18px;height:18px;border:none;border-radius:4px;background:transparent;color:var(--text-2);font-size:15px;line-height:1;display:grid;place-items:center;padding:0}
+.add-btn:hover{background:var(--accent);color:#fff}
+.cell-items{display:flex;flex-direction:column;gap:3px;flex:1;min-height:0;overflow:auto;scrollbar-width:thin}
+.item{display:flex;align-items:center;gap:5px;background:var(--surface);border:1px solid transparent;border-radius:4px;padding:2px 4px;font-size:11px;min-width:0}
+.item:hover{border-color:var(--accent);background:var(--accent-soft)}
+.dot{width:6px;height:6px;border-radius:50%;flex:none}
+.item .nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text)}
+.item .amt{color:var(--accent);font-variant-numeric:tabular-nums;flex:none}
+.more{align-self:flex-start;border:none;background:transparent;color:var(--text-2);font-size:10px;padding:0 2px}
+.more:hover{color:var(--accent)}
+.cell-total{font-size:11px;font-weight:650;color:var(--accent);text-align:right;font-variant-numeric:tabular-nums;min-height:15px}
+.week-total{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;background:var(--surface-2);border:1px dashed var(--border);border-radius:var(--radius-sm)}
+.week-total.current{border-color:var(--accent);background:var(--accent-soft)}
+.week-total span{font-size:9px;color:var(--text-2)}
+.week-total strong{font-size:12px;color:var(--accent);font-variant-numeric:tabular-nums}
+.cal-foot{font-size:11px;color:var(--text-2);margin-top:10px;line-height:1.6}
+
+/* ---------- 侧栏 ---------- */
+.side{display:flex;flex-direction:column;gap:16px}
+.cat-row{display:flex;align-items:center;gap:8px;margin:9px 0;font-size:12px}
+.cat-row .dot{width:9px;height:9px}
+.cat-row .cn{width:38px;flex:none}
+.cat-bar{flex:1;height:6px;background:var(--surface-2);border-radius:99px;overflow:hidden}
+.cat-bar i{display:block;height:100%;border-radius:99px}
+.cat-row .cv{width:78px;text-align:right;font-variant-numeric:tabular-nums;color:var(--text-2);flex:none}
+.cat-row .cp{width:34px;text-align:right;font-variant-numeric:tabular-nums;color:var(--text-2);flex:none;font-size:11px}
+.empty{color:var(--text-2);font-size:12px;text-align:center;padding:22px 8px;border:1px dashed var(--border);border-radius:var(--radius-sm)}
+.detail-head{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:8px}
+.detail-head strong{font-size:14px}
+.detail-head span{color:var(--accent);font-variant-numeric:tabular-nums;font-weight:650}
+.detail-list{max-height:430px;overflow:auto;display:flex;flex-direction:column;gap:6px}
+.detail-item{display:flex;gap:8px;align-items:flex-start;background:var(--surface-2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px}
+.detail-main{flex:1;min-width:0}
+.detail-name{font-size:12px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.detail-meta{font-size:10px;color:var(--text-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.detail-right{text-align:right;flex:none}
+.detail-amt{color:var(--accent);font-size:12px;font-weight:650;font-variant-numeric:tabular-nums}
+.detail-acts{display:flex;gap:6px;justify-content:flex-end;margin-top:3px}
+.detail-acts button{border:none;background:transparent;color:var(--text-2);font-size:10px;padding:0}
+.detail-acts button:hover{color:var(--accent)}
+.primary-btn{height:30px;width:100%;border:1px solid var(--accent);border-radius:7px;background:var(--accent-soft);color:var(--accent);font-size:12px;font-weight:600}
+.primary-btn:hover{background:var(--accent);color:#fff}
+
+/* ---------- 提示条 ---------- */
+.banner{display:flex;align-items:center;gap:10px;padding:10px 14px;border-radius:8px;background:var(--accent-soft);border:1px solid var(--accent);font-size:12px}
+.banner.warn{background:rgba(210,153,34,.12);border-color:var(--warn);color:var(--warn)}
+.banner button{margin-left:auto;border:1px solid var(--accent);background:transparent;color:var(--accent);border-radius:6px;padding:4px 10px;font-size:11px;white-space:nowrap}
+.banner button:hover{background:var(--accent);color:#fff}
+
+/* ---------- 弹窗 ---------- */
+.overlay{position:fixed;inset:0;background:rgba(0,0,0,.62);backdrop-filter:blur(3px);display:flex;align-items:center;justify-content:center;padding:16px;z-index:100}
+.modal{width:min(480px,100%);max-height:90vh;overflow:auto;background:var(--surface);border:1px solid var(--border);border-radius:14px;box-shadow:var(--shadow);padding:22px}
+.modal.wide{width:min(660px,100%)}
+.modal h3{margin:0 0 4px;font-size:17px}
+.modal .desc{margin:0 0 18px;font-size:12px;color:var(--text-2)}
+.field{margin-bottom:14px}
+.field label{display:block;font-size:11px;color:var(--text-2);margin-bottom:5px}
+.field input,.field textarea{width:100%;background:var(--bg);border:1px solid var(--border);border-radius:7px;padding:9px 10px;font-size:13px;outline:none}
+.field input:focus,.field textarea:focus{border-color:var(--accent)}
+.field textarea{resize:vertical;min-height:58px}
+.field .err{color:var(--accent);font-size:11px;min-height:14px;margin-top:3px}
+.field-row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.chips{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+.chip{border:1px solid var(--border);background:var(--bg);border-radius:7px;padding:7px 4px;font-size:12px;color:var(--text-2)}
+.chip:hover{border-color:var(--text-2)}
+.chip.active{border-color:var(--accent);background:var(--accent-soft);color:var(--text);font-weight:600}
+.modal-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:18px;flex-wrap:wrap}
+.btn{border:1px solid var(--border);background:var(--surface-2);border-radius:7px;padding:8px 14px;font-size:12px}
+.btn:hover{background:var(--surface)}
+.btn.ok{border-color:var(--accent);background:var(--accent);color:#fff;font-weight:600}
+.btn.ok:hover{opacity:.9}
+.btn.danger{border-color:var(--accent);color:var(--accent);background:transparent}
+.btn.danger:hover{background:var(--accent);color:#fff}
+.btn.link{margin-right:auto;border:none;background:transparent;color:var(--text-2);padding-left:0}
+.help-sec{margin-bottom:16px}
+.help-sec h4{margin:0 0 6px;font-size:13px;color:var(--accent)}
+.help-sec p,.help-sec li{font-size:12px;color:var(--text-2);margin:3px 0;line-height:1.7}
+.help-sec ul{padding-left:18px;margin:0}
+.help-sec code{background:var(--surface-2);padding:1px 4px;border-radius:4px;font-size:11px}
+
+/* ---------- Toast ---------- */
+.toasts{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);z-index:200;display:flex;flex-direction:column;gap:8px;align-items:center;pointer-events:none}
+.toast{pointer-events:auto;display:flex;align-items:center;gap:12px;background:var(--surface);border:1px solid var(--border);border-left:3px solid var(--success);border-radius:8px;box-shadow:var(--shadow);padding:10px 14px;font-size:12px;min-width:200px}
+.toast.danger{border-left-color:var(--accent)}
+.toast.info{border-left-color:var(--warn)}
+.toast button{border:none;background:transparent;color:var(--accent);font-size:12px;font-weight:650;margin-left:auto}
+
+/* ================================================================
+   响应式断点：
+     ≥1180px 左右双栏；760–1180px 侧栏移到下方并分两列；
+     <760px 手机单列，隐藏条目名称、缩窄周合计列以保住 7 列日历。
+   ================================================================ */
+@media(max-width:1180px){
+  .layout{grid-template-columns:1fr}
+  .side{display:grid;grid-template-columns:1fr 1fr}
+  .summary-row{grid-template-columns:repeat(3,1fr)}
+}
+@media(max-width:760px){
+  .app{padding:14px 12px 32px}
+  .topbar{gap:10px}.brand{min-width:0}.month-nav{margin-left:0}
+  .summary-row{grid-template-columns:repeat(2,1fr)}
+  .side{grid-template-columns:1fr}
+  .weekdays,.week-row{grid-template-columns:repeat(7,minmax(0,1fr)) 54px;gap:3px}
+  .week-row{min-height:92px}
+  .day-cell{padding:4px;gap:2px}
+  .item{padding:1px 2px}.item .nm{display:none}
+  .week-total span{display:none}
+  .field-row{grid-template-columns:1fr}
+}
+
+
+/* ==================================================================
+   移动端体验优化层（追加覆盖，不修改上方任何原有样式规则）
+   目标：手指触控尺寸 / 手势 / 安全区 / 清晰度 / 少输入 / 明确反馈 / 不依赖 hover
+   ================================================================== */
+
+/* ---------- 1. 全局：触控尺寸、可读性、按压反馈 ---------- */
+html{ -webkit-text-size-adjust:100%; }
+body{ font-size:15px; padding-bottom:calc(84px + env(safe-area-inset-bottom)); }
+.app{ padding-top:calc(16px + env(safe-area-inset-top));
+      padding-left:calc(16px + env(safe-area-inset-left));
+      padding-right:calc(16px + env(safe-area-inset-right)); }
+
+/* 所有可点控件的最小热区 44px（iOS HIG / Material 48dp 基线） */
+.nav-btn,.today-btn,.tool-btn,.btn,.chip,.primary-btn,.detail-acts button,.more{
+  min-width:44px; min-height:44px;
+}
+.nav-btn{width:44px;height:44px;font-size:22px}
+.today-btn,.tool-btn{height:44px;padding:0 14px;font-size:13px}
+.btn{padding:10px 18px;font-size:14px}
+.primary-btn{height:48px;font-size:15px;font-weight:600}
+.chip{height:46px;font-size:14px;padding:8px 4px}
+.detail-acts button{display:inline-grid;place-items:center;font-size:12px}
+
+/* 表单：16px 字号可阻止 iOS Safari 聚焦时自动放大页面 */
+.field input,.field textarea{
+  min-height:48px;font-size:16px;line-height:1.5;padding:11px 12px;
+}
+.field textarea{min-height:80px}
+.field label{font-size:12px;margin-bottom:7px}
+.field .err{font-size:12px;min-height:16px}
+
+/* 日历格子：加大点按区域与文字，条目间距放宽便于手指命中 */
+.day-cell{padding:8px;min-height:104px;border-radius:8px;touch-action:pan-y}
+.day-num{font-size:14px}
+.add-btn{width:44px;height:44px;font-size:20px;margin:-9px -6px -9px 0;
+  display:grid;place-items:center;color:var(--accent);background:var(--accent-soft);
+  border-radius:10px;flex:none}
+.item{min-height:32px;font-size:12px;padding:4px 6px;gap:6px}
+.item .dot{width:8px;height:8px;flex:none}
+.item .nm{font-size:12px}
+.item .amt{font-size:12px}
+.cell-total{font-size:12px;min-height:18px}
+.more{min-height:36px;display:flex;align-items:center;font-size:12px;color:var(--accent)}
+.week-total strong{font-size:12px}
+.weekdays div{font-size:12px;padding:4px 0}
+.panel-head .hint{font-size:12px}
+.cal-foot{font-size:12px}
+.detail-item{padding:12px;min-height:64px}
+.detail-name{font-size:14px}
+.detail-meta{font-size:12px}
+.detail-amt{font-size:14px}
+.cat-row{font-size:13px}
+.stat .label{font-size:12px}
+.stat .value{font-size:22px}
+.stat .sub{font-size:12px}
+
+/* 用 :active 替代 hover 作为主要反馈；按压有即时视觉响应 */
+.day-cell:active,.item:active{transform:scale(.97);background:var(--accent-soft);border-color:var(--accent)}
+.nav-btn:active,.today-btn:active,.tool-btn:active,.btn:active,.chip:active,.primary-btn:active{transform:scale(.95);opacity:.85}
+button{ -webkit-tap-highlight-color:transparent; }
+
+/* 无悬停能力的设备上，清掉会「粘住」的 hover 态，保证状态不残留 */
+@media (hover:none){
+  .day-cell:hover{background:var(--surface-2);border-color:var(--border)}
+  .item:hover{background:var(--surface);border-color:transparent}
+  .nav-btn:hover,.today-btn:hover,.tool-btn:hover{background:var(--surface);border-color:var(--border);color:var(--text-2)}
+  .add-btn:hover{background:var(--accent-soft);color:var(--accent)}
+  .more:hover,.detail-acts button:hover{color:var(--text-2)}
+}
+
+/* 焦点态保持高对比，方便外接键盘 / 无障碍 */
+:focus-visible{outline-width:3px;outline-offset:2px}
+
+/* ---------- 2. 底部「记一笔」主操作按钮（FAB） ---------- */
+.m-fab{
+  position:fixed;z-index:90;
+  right:calc(18px + env(safe-area-inset-right));
+  bottom:calc(18px + env(safe-area-inset-bottom));
+  min-width:120px;height:56px;padding:0 20px;border:none;border-radius:999px;
+  background:var(--accent);color:#fff;font-size:15px;font-weight:600;
+  display:flex;align-items:center;justify-content:center;gap:8px;
+  box-shadow:0 6px 20px rgba(248,81,73,.35);
+}
+.m-fab span{font-size:26px;line-height:1;font-weight:400}
+.m-fab:active{transform:scale(.95)}
+
+/* ---------- 3. 底部快捷操作面板（长按条目弹出） ---------- */
+.m-sheet-mask{position:fixed;inset:0;z-index:130;background:rgba(0,0,0,.6);
+  display:flex;align-items:flex-end;justify-content:center;padding:12px}
+.m-sheet{width:100%;max-width:480px;background:var(--surface);border:1px solid var(--border);
+  border-radius:18px;padding:16px 16px calc(16px + env(safe-area-inset-bottom));
+  box-shadow:var(--shadow)}
+.m-sheet h4{margin:0 0 4px;font-size:15px;font-weight:600}
+.m-sheet p{margin:0 0 14px;font-size:13px;color:var(--text-2)}
+.m-sheet button{display:block;width:100%;min-height:52px;margin-top:8px;border-radius:12px;
+  border:1px solid var(--border);background:var(--surface-2);font-size:15px;text-align:left;padding:0 16px}
+.m-sheet button:active{transform:scale(.98);opacity:.85}
+.m-sheet .m-primary{border-color:var(--accent);background:var(--accent-soft);color:var(--accent);font-weight:600}
+.m-sheet .m-danger{color:var(--accent)}
+.m-sheet .m-cancel{margin-top:14px;text-align:center;color:var(--text-2)}
+
+/* ---------- 4. 表单快捷输入（减少打字） ---------- */
+.m-quick{margin:-4px 0 12px}
+.m-quick-title{font-size:12px;color:var(--text-2);margin:0 0 6px}
+.m-quick-row{display:flex;gap:8px;overflow-x:auto;padding-bottom:4px;-webkit-overflow-scrolling:touch;scrollbar-width:none}
+.m-quick-row::-webkit-scrollbar{display:none}
+.m-quick-chip{flex:none;min-height:40px;padding:0 14px;border-radius:999px;
+  border:1px solid var(--border);background:var(--surface-2);font-size:13px;white-space:nowrap}
+.m-quick-chip:active{transform:scale(.94);background:var(--accent-soft);border-color:var(--accent)}
+.m-quick-empty{font-size:12px;color:var(--text-2)}
+
+/* ---------- 5. 反馈：Toast 图标、加载遮罩、状态动画 ---------- */
+.toasts{bottom:calc(92px + env(safe-area-inset-bottom));left:12px;right:12px;transform:none;align-items:center}
+.toast{min-height:48px;padding:10px 14px;font-size:13px;gap:10px;border-radius:12px;min-width:0;max-width:440px;
+  animation:m-pop .22s ease-out}
+.toast button{min-height:44px;min-width:52px;font-size:14px}
+.m-toast-ic{width:22px;height:22px;flex:none;border-radius:50%;display:grid;place-items:center;
+  font-size:13px;font-weight:600;font-style:normal;color:#fff;background:var(--success)}
+.m-toast-ic.m-ic-error{background:var(--accent)}
+.m-toast-ic.m-ic-info{background:var(--warn)}
+@keyframes m-pop{from{opacity:0;transform:translateY(10px) scale(.96)}to{opacity:1;transform:none}}
+
+.m-loading{position:fixed;inset:0;z-index:160;background:rgba(0,0,0,.45);display:grid;place-items:center}
+.m-loading-card{background:var(--surface);border:1px solid var(--border);border-radius:14px;
+  padding:20px 24px;display:flex;align-items:center;gap:12px;font-size:14px;box-shadow:var(--shadow)}
+.m-spinner{width:20px;height:20px;border:2px solid var(--border);border-top-color:var(--accent);
+  border-radius:50%;animation:m-spin .7s linear infinite}
+@keyframes m-spin{to{transform:rotate(360deg)}}
+
+.m-tip{color:var(--accent);font-weight:600}
+.m-sheet-mask[hidden],.m-loading[hidden]{display:none!important}
+
+/* ---------- 6. 自适应：窄屏单列、汇总卡横滑、日历压缩 ---------- */
+@media (max-width:900px){
+  .layout{grid-template-columns:1fr}
+  .side{display:flex;flex-direction:column}
+  .summary-row{display:flex;overflow-x:auto;gap:10px;padding-bottom:6px;
+    scroll-snap-type:x mandatory;-webkit-overflow-scrolling:touch;scrollbar-width:none}
+  .summary-row::-webkit-scrollbar{display:none}
+  .stat{flex:0 0 46%;scroll-snap-align:start}
+}
+@media (max-width:760px){
+  .app{padding-left:calc(10px + env(safe-area-inset-left));padding-right:calc(10px + env(safe-area-inset-right))}
+  .topbar{gap:10px}
+  .brand{min-width:0;flex:1}
+  .brand p{display:none}
+  .month-nav{margin-left:0}
+  .month-title{min-width:104px;font-size:16px}
+  .tools{width:100%;justify-content:flex-start;overflow-x:auto;scrollbar-width:none;flex-wrap:nowrap}
+  .tools::-webkit-scrollbar{display:none}
+  .tools .tool-btn{flex:none}
+  .weekdays,.week-row{grid-template-columns:repeat(7,minmax(0,1fr)) 50px;gap:3px}
+  .week-row{min-height:94px}
+  .day-cell{padding:5px;min-height:94px}
+  .item .nm{display:none}            /* 空间不足时保留颜色点 + 金额，明细在下方卡片看 */
+  .item{justify-content:space-between}
+  .add-btn{width:40px;height:40px;margin:-7px -4px -7px 0}
+  .week-total span{display:none}
+  .panel{padding:10px}
+  .modal{padding:18px 14px calc(18px + env(safe-area-inset-bottom));border-radius:18px 18px 0 0}
+  .overlay{align-items:flex-end;padding:0}
+  .field-row{grid-template-columns:1fr;gap:0}
+  .chips{grid-template-columns:repeat(3,1fr)}
+  .toasts{bottom:calc(86px + env(safe-area-inset-bottom))}
+}
+@media (max-width:380px){
+  .weekdays,.week-row{grid-template-columns:repeat(7,minmax(0,1fr)) 42px;gap:2px}
+  .day-cell{padding:4px;min-height:86px}
+  .week-total strong{font-size:11px}
+  .m-fab{min-width:0;width:56px;padding:0}
+  .m-fab em{display:none}
+}
+/* 横屏 / 矮屏：压缩日历高度，避免整页滚动过长 */
+@media (max-height:520px) and (orientation:landscape){
+  .week-row{min-height:70px}
+  .day-cell{min-height:70px}
+  .m-fab{height:48px}
+}
+/* 尊重系统「减少动态效果」设置 */
+@media (prefers-reduced-motion:reduce){
+  .toast,.m-spinner{animation:none}
+  *{transition:none!important}
+}
+
+</style>
+</head>
+<body>
+<!-- ================================================================
+     DOM 结构总览（对应样式表分区）：
+       .app
+         ├ header.topbar      品牌 / 月份导航 / 工具按钮
+         ├ .summary-row       5 张汇总卡（id 由 JS 填充数字）
+         ├ .banner ×2         示例数据提示 / 存储异常警示（按需显示）
+         └ main.layout
+              ├ .panel        日历：.weekdays 表头 + #calendarGrid（JS 生成 6 行）
+              └ aside.side    #categoryBreakdown 占比 + #recordList 当日明细
+     下面三个 .overlay 分别是：记录表单、确认弹窗、功能说明；
+     默认都带 hidden 属性，由 JS 控制显隐。
+     ================================================================ -->
+<div class="app">
+
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-logo">📅</div>
+      <div><h1>月度消费日历</h1><p>每一笔支出，都看得见</p></div>
+    </div>
+    <div class="month-nav">
+      <button class="nav-btn" id="prevMonth" aria-label="上个月">‹</button>
+      <div class="month-title" id="monthTitle"></div>
+      <button class="nav-btn" id="nextMonth" aria-label="下个月">›</button>
+      <button class="today-btn" id="todayBtn">今天</button>
+    </div>
+    <div class="tools">
+      <button class="tool-btn" id="helpBtn">功能说明</button>
+      <button class="tool-btn" id="themeBtn" aria-label="切换主题">☀️</button>
+      <button class="tool-btn" id="exportBtn">导出</button>
+      <button class="tool-btn" id="importBtn">导入</button>
+      <button class="tool-btn" id="clearBtn">清空</button>
+    </div>
+  </header>
+
+  <div class="summary-row">
+    <div class="stat"><div class="label">本月总支出</div><div class="value money" id="monthTotal">¥0.00</div><div class="sub" id="momText">—</div></div>
+    <div class="stat"><div class="label">支出笔数</div><div class="value" id="monthCount">0</div><div class="sub" id="monthDays">0 个支出日</div></div>
+    <div class="stat"><div class="label">日均支出</div><div class="value" id="dailyAvg">¥0.00</div><div class="sub" id="avgHint">按自然日计算</div></div>
+    <div class="stat"><div class="label">最高单日</div><div class="value" id="maxDay">—</div><div class="sub" id="maxHint">本月</div></div>
+    <div class="stat"><div class="label">所选周合计</div><div class="value money" id="weekTotal">¥0.00</div><div class="sub" id="weekRange">—</div></div>
+  </div>
+
+  <div class="banner" id="demoBanner" hidden>
+    <span>当前展示的是示例数据，方便你先体验。开始记录自己的开支前可一键清空。</span>
+    <button id="clearDemo">清空示例数据</button>
+  </div>
+  <div class="banner warn" id="storageWarn" hidden>
+    <span id="storageWarnText">本地存储不可用，本次修改仅在当前页面有效。</span>
+  </div>
+
+  <main class="layout">
+    <section class="panel">
+      <div class="panel-head">
+        <h2>日历视图</h2>
+        <div class="hint">点日期查看明细 · 点 <b>＋</b> 快速记账 · 双击日期新增</div>
+      </div>
+      <div class="weekdays">
+        <div>周一</div><div>周二</div><div>周三</div><div>周四</div><div>周五</div><div>周六</div><div>周日</div>
+        <div class="week-head">周合计</div>
+      </div>
+      <div class="calendar-grid" id="calendarGrid" role="grid" aria-label="月度消费日历"></div>
+      <div class="cal-foot">
+        口径：每周以<b>周一</b>为起点；周合计包含该行 7 天（含灰显的邻月日期）的全部记录；月合计、分类占比只统计当前自然月。金额以「分」为单位计算，避免浮点误差。
+      </div>
+    </section>
+
+    <aside class="side">
+      <section class="panel">
+        <div class="panel-head"><h2>分类占比</h2><div class="hint" id="catTotal">本月</div></div>
+        <div id="categoryBreakdown"></div>
+      </section>
+      <section class="panel">
+        <div class="panel-head"><h2 id="detailTitle">当日明细</h2><div class="hint" id="detailCount"></div></div>
+        <div id="recordList"></div>
+        <button class="primary-btn" id="addForSelected" style="margin-top:10px">＋ 为这一天记一笔</button>
+      </section>
+    </aside>
+  </main>
+</div>
+
+<!-- 记录表单 -->
+<div class="overlay" id="modalOverlay" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+    <h3 id="modalTitle">新增消费记录</h3>
+    <p class="desc">所有字段均可修改，保存后各档合计立即更新。</p>
+    <form id="recordForm" novalidate>
+      <input type="hidden" id="fCategory" value="other">
+      <div class="field-row">
+        <div class="field"><label for="fDate">日期 *</label><input type="date" id="fDate"><div class="err" id="eDate"></div></div>
+        <div class="field"><label for="fAmount">金额（元）*</label><input type="number" id="fAmount" step="0.01" min="0.01" placeholder="0.00"><div class="err" id="eAmount"></div></div>
+      </div>
+      <div class="field"><label for="fName">消费名称 *</label><input type="text" id="fName" maxlength="30" placeholder="例如：午餐 · 麻辣烫"><div class="err" id="eName"></div></div>
+      <div class="field"><label>分类</label><div class="chips" id="catChips"></div></div>
+      <div class="field"><label for="fNote">备注（选填）</label><textarea id="fNote" maxlength="100" placeholder="可记录地点、用途等"></textarea><div class="err" id="eNote"></div></div>
+      <div class="modal-actions">
+        <button type="button" class="btn link" id="deleteBtn" hidden>删除这条记录</button>
+        <button type="button" class="btn" id="cancelBtn">取消</button>
+        <button type="submit" class="btn ok">保存</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- 确认弹窗 -->
+<div class="overlay" id="confirmOverlay" hidden>
+  <div class="modal" role="alertdialog" aria-modal="true" aria-labelledby="confirmTitle">
+    <h3 id="confirmTitle">确认操作</h3>
+    <p class="desc" id="confirmMsg"></p>
+    <div class="modal-actions">
+      <button class="btn" id="confirmCancel">取消</button>
+      <button class="btn danger" id="confirmOk">确认</button>
+    </div>
+  </div>
+</div>
+
+<!-- 功能说明 -->
+<div class="overlay" id="helpOverlay" hidden>
+  <div class="modal wide" role="dialog" aria-modal="true" aria-labelledby="helpTitle">
+    <h3 id="helpTitle">功能说明与验收标准</h3>
+    <p class="desc">产品规划 · 界面设计 · 交互设计 · 前端实现 四角色协作产出</p>
+    <div class="help-sec"><h4>一、功能结构</h4>
+      <ul><li><b>P0</b>：自然月日历网格；任意日期新增 / 编辑 / 删除；名称、分类、备注、金额、日期均可改；每日 / 每周 / 每月自动汇总；localStorage 持久化；示例数据。</li>
+      <li><b>P1</b>：月份切换与「今天」；分类占比；删除确认与 5 秒撤销；JSON 导出 / 导入；主题切换；示例数据一键清空。</li>
+      <li><b>P2</b>：环比提示；键盘导航（方向键切日、Ctrl/Cmd+Z 撤销、Esc 关闭）；响应式布局。</li></ul>
+    </div>
+    <div class="help-sec"><h4>二、页面布局</h4>
+      <p>顶部栏（品牌 / 月份导航 / 工具）→ 汇总条（月总额、笔数、日均、最高单日、所选周合计）→ 主体左栏 6 行 × 7 列日历 + 行末周合计列，右栏分类占比与当日明细。≥1180px 双栏；760–1180px 侧栏下移；&lt;760px 单列并压缩单元格。</p>
+    </div>
+    <div class="help-sec"><h4>三、交互规则</h4>
+      <ul><li>单击日期格 → 选中并刷新右侧明细；双击日期格或点 ＋ → 新增；点条目 → 编辑。</li>
+      <li>删除 → 二次确认 → Toast 中 5 秒内可撤销；清空数据同样需确认。</li>
+      <li>金额必须 &gt; 0、最多 2 位小数、≤ 10 亿；名称 1–30 字必填；备注 ≤ 100 字。</li>
+      <li>邻月日期灰显但可记账，记录归入其真实所属月；跨月周合计含邻月日期。</li>
+      <li>数据变更后即时重算所有合计；导入 JSON 按 ID 去重并校验非法项。</li></ul>
+    </div>
+    <div class="help-sec"><h4>四、验收标准</h4>
+      <ul><li>日历按周一起点渲染 6 行，当月日期与邻月日期状态区分正确。</li>
+      <li>新增 / 编辑 / 删除后，所在日、所在周、当月合计同步更新且数值正确。</li>
+      <li>分类占比合计等于当月总支出；周合计等于该行 7 天之和。</li>
+      <li>月合计只含当前自然月；环比在上月为 0 时安全显示「上月无数据」。</li>
+      <li>刷新页面数据不丢失；存储损坏时降级为空数据并给出警示，不白屏。</li>
+      <li>表单校验拦截空值、负数、非数字、超长文本；超大金额正常显示千分位。</li>
+      <li>删除确认与撤销、清空确认、导入导出、主题切换均按规则工作。</li></ul>
+    </div>
+    <div class="modal-actions"><button class="btn ok" id="helpClose">知道了</button></div>
+  </div>
+</div>
+
+<div class="toasts" id="toasts" aria-live="polite"></div>
+<input type="file" id="importFile" accept="application/json,.json" hidden>
+
+<script>
+/* ================================================================
+   月度消费日历 · 应用脚本
+   ----------------------------------------------------------------
+   建议按以下顺序阅读（也是代码的物理顺序）：
+     1 常量与工具   全局配置、分类字典、日期与金额函数
+     2 状态         唯一数据源 records + 视图状态
+     3 存储         localStorage 读写与损坏降级
+     4 示例数据     首次启动的种子数据
+     5 计算         按日 / 周 / 月聚合的纯函数
+     6 渲染         把状态映射为 DOM（render 是唯一出口）
+     7 反馈         Toast 与确认弹窗
+     8 表单         新增 / 编辑与校验
+     9 事件         事件委托、快捷键、数据管理
+    10 启动         加载 → 渲染
+
+   核心设计：任何改动都遵循「先改 records → save() → render()」，
+   从不手工拼凑局部 DOM。因此日 / 周 / 月 / 分类各档汇总天然一致，
+   不会出现"改了这格忘了那格"的问题。
+   ================================================================ */
+(function(){
+'use strict';
+
+/* ==================== 1. 常量与工具 ====================
+   STORAGE_KEY 存业务数据，THEME_KEY 存主题偏好，分开存放，
+   这样「清空账目」不会连带重置用户的主题设置。 */
+const STORAGE_KEY='mcal.records.v1', THEME_KEY='mcal.theme.v1';
+
+/* 分类主数据表 —— 应用的「枚举字典」。
+   id 用于持久化（稳定，改显示名不影响历史数据），
+   name / icon / color 只用于展示。
+   要增加分类，在这里加一行即可：九宫格、占比图、彩色圆点会自动同步。 */
+const CATS=[
+  {id:'food',name:'餐饮',icon:'🍚',color:'#F0883E'},
+  {id:'transport',name:'交通',icon:'🚌',color:'#58A6FF'},
+  {id:'shopping',name:'购物',icon:'🛍️',color:'#F778BA'},
+  {id:'housing',name:'居住',icon:'🏠',color:'#BC8CFF'},
+  {id:'fun',name:'娱乐',icon:'🎮',color:'#3FB950'},
+  {id:'medical',name:'医疗',icon:'💊',color:'#56D4DD'},
+  {id:'edu',name:'教育',icon:'📚',color:'#A5A6F6'},
+  {id:'social',name:'人情',icon:'🎁',color:'#F85149'},
+  {id:'other',name:'其他',icon:'•',color:'#8B949E'}
+];
+/* 由分类数组派生「id → 分类对象」索引表，供 O(1) 查找，
+   避免渲染每条记录时反复遍历数组。 */
+const catMap={}; CATS.forEach(c=>catMap[c.id]=c);
+
+/* DOM 查询简写：$ 取单个元素，$$ 取全部并转成真数组（可用 map / filter）。 */
+const $=s=>document.querySelector(s), $$=s=>Array.from(document.querySelectorAll(s));
+
+/* today 归零到当天 00:00:00。若保留当前时分秒，
+   "今天"的日期字符串比较仍然可行，但后续按毫秒比较周起点会出错。 */
+const now=new Date(); const today=new Date(now.getFullYear(),now.getMonth(),now.getDate());
+
+/* ---------- 日期工具（统一用本地时区，避免 UTC 造成跨日偏移） ---------- */
+/* Date → 'YYYY-MM-DD'。它同时是记录的 date 字段和格子的 data-date 主键。 */
+const ymd=d=>d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+/* 'YYYY-MM-DD' → Date。注意 JS 月份从 0 开始，所以 a[1] 要减 1。 */
+const parseYMD=s=>{const a=String(s).split('-').map(Number);return new Date(a[0],a[1]-1,a[2]);};
+/* 日期加减天数。setDate 会自动处理跨月、跨年进位。 */
+const addDays=(d,n)=>{const x=new Date(d);x.setDate(x.getDate()+n);return x;};
+/* 取所在周的「周一」——整个应用「周一起点」的核心公式：
+   getDay() 周日=0、周一=1…周六=6；(n+6)%7 把它们改造成 周一=0…周日=6，
+   再往前推相应天数即回到本周一。 */
+const mondayOf=d=>{const x=new Date(d);x.setDate(x.getDate()-((x.getDay()+6)%7));return x;};
+/* 某年某月的天数：构造「下个月第 0 天」，等价于本月最后一天。 */
+const dim=(y,m)=>new Date(y,m+1,0).getDate();
+
+/* ---------- 文本与金额工具 ---------- */
+/* HTML 转义。用户输入的名称和备注会被拼进 innerHTML，
+   不转义会有 XSS 风险（例如输入 <img onerror=...>）。 */
+const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+/* 完整金额展示：内部以「分」存储，展示时 ÷100，加 ¥、千分位、两位小数。 */
+const money=c=>'¥'+(c/100).toLocaleString('zh-CN',{minimumFractionDigits:2,maximumFractionDigits:2});
+/* 紧凑金额：≥1 万元压缩成「X.X万」，用于格子、周合计等窄空间。 */
+const short=c=>{const v=c/100;return '¥'+(Math.abs(v)>=10000?(v/10000).toFixed(1)+'万':v.toLocaleString('zh-CN',{maximumFractionDigits:2}));};
+/* 生成唯一 id：时间戳(36 进制) + 随机串，供去重、编辑定位、导入使用。 */
+const genId=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,8);
+/* 数据合法性校验：加载本地数据和导入 JSON 时统一过滤脏数据。
+   金额必须是「整数分」、>0 且 ≤10 亿；日期必须是可解析的 YYYY-MM-DD。 */
+const validRecord=r=>r&&typeof r.id==='string'&&r.id&&/^\d{4}-\d{2}-\d{2}$/.test(r.date)&&
+  !isNaN(parseYMD(r.date).getTime())&&Number.isInteger(r.amount)&&r.amount>0&&r.amount<=100000000000;
+
+/* ==================== 2. 状态 ====================
+   records 是唯一的业务数据源，其他都是「视图状态」：
+   它们只决定"看什么"，不参与持久化，刷新后回到默认值。 */
+let records=[],                              // 全部消费记录（扁平数组）
+    storageOk=true,                          // 本地存储是否可用；失败时降级为内存态
+    viewY=today.getFullYear(),               // 当前浏览的年
+    viewM=today.getMonth();                  // 当前浏览的月（0–11）
+let selectedDate=ymd(today),                 // 选中日期：驱动右侧明细和「所选周合计」
+    editingId=null,                          // 正在编辑的记录 id；null 表示新增模式
+    lastUndo=null,                           // 最近一次可撤销操作的撤销函数（供 Ctrl+Z 用）
+    confirmCb=null,                          // 确认弹窗点「确认」后要执行的回调
+    focusBack=null;                          // 关闭弹窗后焦点归还的元素（无障碍）
+/* 记录哪些日期展开了第 4 条以后的消费；用 Object.create(null) 避免原型键冲突。 */
+const expanded=Object.create(null);
+
+/* ==================== 3. 存储 ====================
+   设计原则：读时容错、写时降级、绝不白屏。
+   - 键不存在        → 返回 null，启动流程据此注入示例数据；
+   - 解析失败/结构错 → 先把损坏内容另存到备份键，再清空并返回空数组；
+   - 读写抛异常      → 置 storageOk=false，应用继续可用但改动只在内存。 */
+function load(){
+  let raw;
+  /* 隐私模式或禁用 Cookie 时，访问 localStorage 本身就会抛错。 */
+  try{raw=localStorage.getItem(STORAGE_KEY);}catch(e){storageOk=false;return null;}
+  if(raw===null)return null;                       // 首次启动的信号
+  try{
+    const arr=JSON.parse(raw);
+    if(!Array.isArray(arr))throw new Error('bad'); // 结构不对也走降级分支
+    /* 逐条过滤 + 规范化：脏数据被丢弃，缺失字段补默认值，
+       超长文本截断，未知分类回落到 other。 */
+    return arr.filter(validRecord).map(r=>({
+      id:r.id,date:r.date,amount:r.amount,
+      name:String(r.name||'未命名').slice(0,30),
+      category:catMap[r.category]?r.category:'other',
+      note:String(r.note||'').slice(0,100),
+      demo:!!r.demo,
+      createdAt:r.createdAt||new Date().toISOString(),
+      updatedAt:r.updatedAt||new Date().toISOString()
+    }));
+  }catch(e){
+    storageOk=false;
+    /* 保留现场以便排查：把坏数据写到带时间戳的独立键，再移除原键。 */
+    try{localStorage.setItem(STORAGE_KEY+'.corrupt.'+Date.now(),raw);localStorage.removeItem(STORAGE_KEY);}catch(_){}
+    return [];
+  }
+}
+/* 每次数据变更后调用。若之前已判定存储不可用则直接跳过，
+   避免反复抛错；写入失败时显示警示条告知用户。 */
+function save(){
+  if(!storageOk)return;
+  try{localStorage.setItem(STORAGE_KEY,JSON.stringify(records));}
+  catch(e){storageOk=false;$('#storageWarnText').textContent='本地存储写入失败，本次修改仅在当前页面有效。';$('#storageWarn').hidden=false;}
+}
+
+/* ==================== 4. 示例数据 ====================
+   仅在首次启动（本地无数据键）时生成，让空应用也能立刻演示效果。
+   每条都带 demo:true，因此「一键清空示例」不会误删用户自建记录；
+   用户一旦编辑某条，demo 标记会被清掉，视作用户自己的数据。
+   两个刻意设计：
+   - 浏览当前月时只生成到「今天」为止，不出现未来消费；
+   - 额外造两条上月记录，用来演示跨月周和环比。 */
+function seed(){
+  const defs=[
+    {d:1,n:'早餐 · 豆浆油条',c:'food',a:14.5,note:'上班路上'},
+    {d:2,n:'地铁通勤',c:'transport',a:6,note:'往返'},
+    {d:3,n:'周末超市采购',c:'shopping',a:238.6,note:'囤货'},
+    {d:3,n:'午餐 · 盖饭',c:'food',a:28,note:''},
+    {d:4,n:'拿铁咖啡',c:'food',a:32,note:'续命'},
+    {d:5,n:'水电燃气费',c:'housing',a:316.8,note:'本月账单'},
+    {d:6,n:'加班网约车',c:'transport',a:45.5,note:''},
+    {d:7,n:'电影票 ×2',c:'fun',a:96,note:'周末'},
+    {d:8,n:'药店 · 感冒药',c:'medical',a:42.3,note:''},
+    {d:9,n:'午餐 · 麻辣烫',c:'food',a:35,note:''},
+    {d:10,n:'房租',c:'housing',a:3200,note:'月度'},
+    {d:11,n:'书店 · 设计书',c:'edu',a:128,note:''},
+    {d:12,n:'朋友生日礼物',c:'social',a:299,note:'网购'},
+    {d:13,n:'早餐 · 煎饼',c:'food',a:12,note:''},
+    {d:14,n:'健身月卡',c:'fun',a:399,note:'月付'},
+    {d:15,n:'地铁通勤',c:'transport',a:6,note:''},
+    {d:16,n:'外卖 · 夜宵',c:'food',a:58.8,note:''},
+    {d:17,n:'手机话费',c:'other',a:100,note:''},
+    {d:18,n:'超市 · 日用品',c:'shopping',a:167.4,note:''},
+    {d:19,n:'AI 工具课程',c:'edu',a:199,note:'线上'},
+    {d:20,n:'同事聚餐 AA',c:'social',a:218,note:''},
+    {d:21,n:'公交',c:'transport',a:4,note:''},
+    {d:22,n:'水果 · 车厘子',c:'shopping',a:156,note:''},
+    {d:23,n:'早餐 · 包子',c:'food',a:10,note:''},
+    {d:24,n:'理发',c:'other',a:68,note:''},
+    {d:25,n:'快递费',c:'other',a:23,note:''},
+    {d:26,n:'咖啡豆囤货',c:'food',a:89,note:''},
+    {d:27,n:'展览门票',c:'fun',a:80,note:''}
+  ];
+  const isCur=viewY===today.getFullYear()&&viewM===today.getMonth();
+  /* 当前月截到今天；浏览历史/未来月时铺满整月。 */
+  const maxD=isCur?today.getDate():dim(viewY,viewM);
+  const list=[];
+  defs.forEach(x=>{
+    if(x.d>maxD)return;                    // 跳过"未来"的消费
+    /* 元 → 分：乘 100 后四舍五入，与表单提交、导入的换算方式保持一致。 */
+    list.push({id:genId(),date:ymd(new Date(viewY,viewM,x.d)),name:x.n,category:x.c,
+      amount:Math.round(x.a*100),note:x.note,demo:true,
+      createdAt:new Date().toISOString(),updatedAt:new Date().toISOString()});
+  });
+  /* 补两条上月月末记录：它们会落在首行（跨月周），
+     使"周合计含邻月、月合计不含邻月"的口径能被直接观察到。 */
+  const p=new Date(viewY,viewM-1,1), pd=dim(p.getFullYear(),p.getMonth());
+  [{n:'停车费',c:'transport',a:150,back:0},{n:'上月结转利息',c:'housing',a:1200,back:2}].forEach(x=>{
+    list.push({id:genId(),date:ymd(new Date(p.getFullYear(),p.getMonth(),pd-x.back)),name:x.n,
+      category:x.c,amount:Math.round(x.a*100),note:'',demo:true,
+      createdAt:new Date().toISOString(),updatedAt:new Date().toISOString()});
+  });
+  return list;
+}
+
+/* ==================== 5. 计算 ====================
+   全部是「纯函数」：只读 records，不修改状态、不碰 DOM。
+   不做结果缓存 —— 每次渲染都现算，这就是"数据一变，各档立即更新"的根本。
+   所有金额单位都是整数「分」，彻底避开 0.1+0.2 这类浮点误差。 */
+/* 求和：把记录数组映射的 amount 累加。 */
+const sum=a=>a.reduce((s,r)=>s+r.amount,0);
+/* 生成 'YYYY-MM' 前缀，用于按字符串前缀筛选某月记录。 */
+const prefix=(y,m)=>y+'-'+String(m+1).padStart(2,'0');
+/* 某月全部记录：靠 date 前缀匹配，比逐条 Date 解析快得多。 */
+function monthRecords(y,m){const p=prefix(y,m);return records.filter(r=>r.date.startsWith(p));}
+/* 某日全部记录：date 是精确主键，直接相等比较。 */
+function dayRecords(ds){return records.filter(r=>r.date===ds);}
+
+/* ==================== 6. 渲染 ====================
+   render() 是唯一的 DOM 更新入口：任何状态变化（增删改、切月、切主题、
+   撤销）最后都调用它，依次刷新六个区域。各子函数只负责自己那块 DOM，
+   互不读写对方的结果，因此不会遗漏。
+   代价是每次全量重绘，但对个人账目这种数据量（几十到几百条）完全够用，
+   换来的是逻辑极简与数据一致性。 */
+function render(){
+  $('#monthTitle').textContent=viewY+' 年 '+(viewM+1)+' 月';
+  renderSummary(); renderCalendar(); renderCategories(); renderDetail(); renderBanners();
+}
+/* 提示条：只有「全部记录都是示例」时才显示清空引导；
+   用户一旦添加或编辑了自己的数据，引导自动消失。 */
+function renderBanners(){
+  const demo=records.length>0&&records.every(r=>r.demo);
+  $('#demoBanner').hidden=!demo;
+  $('#storageWarn').hidden=storageOk;
+}
+/* 顶部五张汇总卡：月总额、笔数、日均、最高单日、所选周合计。 */
+function renderSummary(){
+  const mr=monthRecords(viewY,viewM), total=sum(mr);
+  $('#monthTotal').textContent=money(total);
+  $('#monthCount').textContent=String(mr.length);
+  /* Set 去重：得到"有花钱的天数"，用于计算有多少个支出日和找最高单日。 */
+  const daySet=new Set(mr.map(r=>r.date));
+  $('#monthDays').textContent=daySet.size+' 个支出日';
+  /* 日均按"已过天数"算：浏览当月时除以今天日期，
+     浏览历史月则除以完整月天数；Math.max 防止月初 0 作除数。 */
+  const isCur=viewY===today.getFullYear()&&viewM===today.getMonth();
+  const divisor=isCur?today.getDate():dim(viewY,viewM);
+  $('#dailyAvg').textContent=money(total/Math.max(1,divisor));
+  $('#avgHint').textContent=isCur?'按本月已过 '+divisor+' 天':'按 '+divisor+' 天';
+  /* 遍历有支出的日期，逐日求和，保留金额最大的那天。 */
+  if(daySet.size){
+    let best=null;daySet.forEach(d=>{const s=sum(dayRecords(d));if(!best||s>best.s)best={d,s};});
+    $('#maxDay').textContent=money(best.s);
+    $('#maxHint').textContent=parseYMD(best.d).getMonth()+1+' 月 '+parseYMD(best.d).getDate()+' 日';
+  }else{$('#maxDay').textContent='—';$('#maxHint').textContent='本月';}
+  /* 环比：上月为 0 时显示占位文案，避免除零得到 Infinity。
+     new Date(y, m-1, 1) 传入 -1 月份会自动跨年回溯，无需手工处理。 */
+  const prev=new Date(viewY,viewM-1,1), pt=sum(monthRecords(prev.getFullYear(),prev.getMonth()));
+  const el=$('#momText'); el.className='sub';
+  if(pt>0){
+    const diff=total-pt, pct=(Math.abs(diff)/pt*100).toFixed(1);
+    el.textContent=(diff>=0?'↑ ':'↓ ')+pct+'%（上月 '+money(pt)+'）';
+    el.classList.add(diff>=0?'up':'down');       /* 涨红跌绿，符合中文习惯 */
+  }else el.textContent='上月无数据';
+  /* 「所选周」合计：以选中日期所在周一为起点，凑齐 7 个日期字符串放入 Set，
+     再对全部记录做一次线性扫描即可（O(n)，无需先按日期分组）。
+     注意这里含邻月日期，与"月合计只算当月"的口径不同。 */
+  const ws=mondayOf(parseYMD(selectedDate)), we=addDays(ws,6);
+  const keys=new Set();for(let i=0;i<7;i++)keys.add(ymd(addDays(ws,i)));
+  const wt=records.reduce((s,r)=>s+(keys.has(r.date)?r.amount:0),0);
+  $('#weekTotal').textContent=money(wt);
+  $('#weekRange').textContent=(ws.getMonth()+1)+'/'+ws.getDate()+' – '+(we.getMonth()+1)+'/'+we.getDate();
+}
+/* 日历：整个应用最核心的渲染函数。
+   做法是「先算日期，再拼字符串，最后一次写入 innerHTML」，
+   比逐格 createElement 更简洁；安全性由 esc() 保证。 */
+function renderCalendar(){
+  /* 从当月 1 号回退到所在周的周一，得到整个网格的第一格。
+     固定渲染 6 行 × 7 列 = 42 格，跨月的格子会灰显。 */
+  const first=new Date(viewY,viewM,1), start=mondayOf(first), sd=ymd(today);
+  let html='';
+  for(let w=0;w<6;w++){
+    /* 一周 7 天：start + 7*w + i。用 Date 而非字符串做加法，
+       自动处理跨月与闰年。 */
+    const week=[];for(let i=0;i<7;i++)week.push(addDays(start,w*7+i));
+    /* 本周日期集合 → 行末"周合计"。与 renderSummary 中"所选周"用同一算法。 */
+    const keySet=new Set(week.map(ymd));
+    const wt=records.reduce((s,r)=>s+(keySet.has(r.date)?r.amount:0),0);
+    /* 是否高亮为"本周"：周一起点相同，且这行确实含有当月的日子。 */
+    const isCurWeek=mondayOf(today).getTime()===start.getTime()&&
+      week.some(d=>d.getFullYear()===today.getFullYear()&&d.getMonth()===today.getMonth());
+    html+='<div class="week-row" role="row">';
+    week.forEach(d=>{
+      const ds=ymd(d), recs=dayRecords(ds), t=sum(recs);
+      /* 邻月判断：年月任一不符即灰显，但仍保留点击与记账能力。 */
+      const other=d.getMonth()!==viewM||d.getFullYear()!==viewY;
+      /* 四种样式可叠加：基础 / 邻月 / 今天 / 选中；filter 去掉空串。 */
+      const cls=['day-cell',other?'other':'',ds===sd?'today':'',ds===selectedDate?'selected':''].filter(Boolean).join(' ');
+      /* 密度控制：默认只显示前 3 条，其余折叠为「+N 条」按钮。
+         每条带 data-edit，点击即可进入编辑（事件委托会识别它）。 */
+      const shown=recs.slice(0,3).map(r=>{
+        const c=catMap[r.category]||catMap.other;
+        return '<div class="item" data-edit="'+esc(r.id)+'" title="'+esc(r.name)+' · '+money(r.amount)+'"><span class="dot" style="background:'+c.color+'"></span><span class="nm">'+esc(r.name)+'</span><span class="amt">'+short(r.amount)+'</span></div>';
+      }).join('');
+      /* 展开状态存放在 expanded[日期]；按钮文案随状态在「+N 条 / 收起」间切换。 */
+      const more=recs.length>3?'<button class="more" data-expand="'+ds+'">'+(expanded[ds]?'收起':'+'+(recs.length-3)+' 条')+'</button>':'';
+      /* 只有展开时才渲染第 4 条起的条目，避免 DOM 冗余。 */
+      const extra=(expanded[ds]?recs.slice(3).map(r=>{
+        const c=catMap[r.category]||catMap.other;
+        return '<div class="item" data-edit="'+esc(r.id)+'"><span class="dot" style="background:'+c.color+'"></span><span class="nm">'+esc(r.name)+'</span><span class="amt">'+short(r.amount)+'</span></div>';
+      }).join(''):'');
+      html+='<div class="'+cls+'" data-date="'+ds+'" role="gridcell" tabindex="0" aria-label="'+d.getMonth()+1+'月'+d.getDate()+'日，'+recs.length+'笔，合计'+money(t)+'">'+
+        '<div class="cell-head"><span class="day-num">'+d.getDate()+'</span>'+(ds===sd?'<span class="today-tag">今天</span>':'')+
+        '<button class="add-btn" data-add="'+ds+'" aria-label="在 '+ds+' 新增记录">＋</button></div>'+
+        '<div class="cell-items">'+shown+extra+more+'</div>'+
+        '<div class="cell-total">'+(t>0?short(t):'')+'</div></div>';
+    });
+    /* 行末独立的周合计列：与 7 个日期格并排，视觉上把"周"这一档汇总固定下来。 */
+    html+='<div class="week-total'+(isCurWeek?' current':'')+'" role="gridcell" title="本行周一至周日合计"><span>周合计</span><strong>'+short(wt)+'</strong></div></div>';
+  }
+  /* 42 个格子一次性写入，浏览器只做一次布局。 */
+  $('#calendarGrid').innerHTML=html;
+}
+/* 分类占比：按分类聚合当月金额，画进度条与百分比。 */
+function renderCategories(){
+  const mr=monthRecords(viewY,viewM), total=sum(mr), map={};
+  /* 累加器对象：key 是分类 id，value 是该分类的分数合计。 */
+  mr.forEach(r=>map[r.category]=(map[r.category]||0)+r.amount);
+  $('#catTotal').textContent='本月 '+money(total);
+  /* 以 CATS 为主表映射，保证顺序固定、零金额分类被过滤，再按金额降序。 */
+  const arr=CATS.map(c=>({c,v:map[c.id]||0})).filter(x=>x.v>0).sort((a,b)=>b.v-a.v);
+  if(!arr.length){$('#categoryBreakdown').innerHTML='<div class="empty">本月还没有记录<br>在日历上选一天记下第一笔吧</div>';return;}
+  $('#categoryBreakdown').innerHTML=arr.map(x=>{
+    const pct=total?x.v/total*100:0;
+    return '<div class="cat-row"><span class="dot" style="background:'+x.c.color+'"></span>'+
+      '<span class="cn">'+x.c.name+'</span><span class="cat-bar"><i style="width:'+pct.toFixed(1)+'%;background:'+x.c.color+'"></i></span>'+
+      '<span class="cv">'+money(x.v)+'</span><span class="cp">'+pct.toFixed(0)+'%</span></div>';
+  }).join('');
+}
+/* 当日明细：右侧列表展示选中日期的全部记录。
+   按创建时间升序排列，让先后记入的顺序保持稳定可预期。 */
+function renderDetail(){
+  const recs=dayRecords(selectedDate).sort((a,b)=>String(a.createdAt).localeCompare(String(b.createdAt)));
+  const d=parseYMD(selectedDate), total=sum(recs);
+  $('#detailTitle').textContent=(d.getMonth()+1)+' 月 '+d.getDate()+' 日明细';
+  $('#detailCount').textContent=recs.length+' 笔 · '+money(total);
+  $('#recordList').innerHTML=recs.length?recs.map(r=>{
+    const c=catMap[r.category]||catMap.other;
+    return '<div class="detail-item"><span class="dot" style="background:'+c.color+';margin-top:5px"></span>'+
+      '<div class="detail-main"><div class="detail-name">'+esc(r.name)+'</div><div class="detail-meta">'+c.icon+' '+c.name+(r.note?' · '+esc(r.note):'')+'</div></div>'+
+      '<div class="detail-right"><div class="detail-amt">'+money(r.amount)+'</div><div class="detail-acts">'+
+      '<button data-detail-edit="'+esc(r.id)+'">编辑</button><button data-detail-del="'+esc(r.id)+'">删除</button></div></div></div>';
+  }).join(''):'<div class="empty">这一天还没有消费记录</div>';
+}
+
+/* ==================== 7. 反馈 ====================
+   Toast 与确认弹窗都用"回调"而非浏览器原生 alert/confirm：
+   样式可控、可定制按钮文案，并且能做撤销。 */
+/* 轻提示。type 控制左边框颜色（success/danger/info）；
+   undo 传入函数时会多出一个「撤销」按钮；ms 控制存活时长。 */
+function toast(msg,type,undo,ms){
+  const el=document.createElement('div');el.className='toast '+(type||'');
+  /* 用 textContent 而非 innerHTML 写入消息，天然免疫 XSS。 */
+  el.appendChild(Object.assign(document.createElement('span'),{textContent:msg}));
+  if(undo){
+    const b=document.createElement('button');b.textContent='撤销';
+    b.onclick=()=>{undo();lastUndo=null;el.remove();};el.appendChild(b);
+  }
+  $('#toasts').appendChild(el);
+  /* 两段 setTimeout：先淡出，再移除节点，避免突兀消失。 */
+  setTimeout(()=>{el.style.opacity='0';el.style.transition='opacity .25s';setTimeout(()=>el.remove(),260);},ms||3000);
+}
+/* 通用确认弹窗：把"确定后做什么"存进 confirmCb，
+   由 #confirmOk 统一取出执行，避免为每个场景写一套弹窗。 */
+function askConfirm(title,msg,cb,text){
+  $('#confirmTitle').textContent=title;$('#confirmMsg').textContent=msg;
+  $('#confirmOk').textContent=text||'确认';confirmCb=cb;
+  /* 记住打开前的焦点，关闭时还回去 —— 键盘用户的体验细节。 */
+  focusBack=document.activeElement;$('#confirmOverlay').hidden=false;
+  setTimeout(()=>$('#confirmCancel').focus(),0);   /* 默认聚焦"取消"，防误触 */
+}
+function closeConfirm(){$('#confirmOverlay').hidden=true;confirmCb=null;if(focusBack)focusBack.focus();}
+
+/* ==================== 8. 表单 ====================
+   同一个弹窗服务「新增」和「编辑」两种模式：
+   - 编辑：按 id 找到记录回填所有字段，并设 editingId；
+   - 新增：日期预填为传入日期（或当前选中日），其余留空。
+   提交时根据 editingId 决定走"修改"还是"新增"分支。 */
+function clearErrors(){['eDate','eAmount','eName','eNote'].forEach(id=>$('#'+id).textContent='');}
+function openForm(mode,dateStr,id){
+  const r=mode==='edit'?records.find(x=>x.id===id):null;
+  editingId=r?r.id:null;
+  $('#modalTitle').textContent=r?'编辑消费记录':'新增消费记录';
+  $('#fDate').value=r?r.date:(dateStr||selectedDate);
+  $('#fAmount').value=r?(r.amount/100).toFixed(2):'';
+  $('#fName').value=r?r.name:'';
+  $('#fNote').value=r?(r.note||''):'';
+  $('#fCategory').value=r?r.category:'other';
+  /* 分类用九宫格单选而非原生 select：生成 9 个 chip，当前分类加 active 类。 */
+  $('#catChips').innerHTML=CATS.map(c=>'<button type="button" class="chip'+(c.id===$('#fCategory').value?' active':'')+'" data-cat="'+c.id+'">'+c.icon+' '+c.name+'</button>').join('');
+  $('#deleteBtn').hidden=!r;                    /* 新增时隐藏"删除"按钮 */
+  clearErrors();focusBack=document.activeElement;
+  $('#modalOverlay').hidden=false;
+  /* 打开后把焦点放到第一个输入项，键盘用户可直接开始输入。 */
+  setTimeout(()=>$('#fName').focus(),0);
+}
+function closeForm(){$('#modalOverlay').hidden=true;editingId=null;if(focusBack)focusBack.focus();}
+/* 删除 = 从数组移除 + 持久化 + 全量重绘，并把"插回原位置"的函数交给 Toast。
+   splice 的 idx 被闭包记住，撤销时才能回到原来的排序位置。 */
+function doDelete(id){
+  const idx=records.findIndex(x=>x.id===id);if(idx<0)return;
+  const removed=records.splice(idx,1)[0];
+  save();render();
+  const undo=()=>{records.splice(Math.min(idx,records.length),0,removed);save();render();toast('已撤销删除','success');};
+  lastUndo=undo;                                /* 供 Ctrl/Cmd+Z 使用 */
+  toast('已删除「'+removed.name+'」','danger',undo,5000);
+}
+/* 分类 chip 点击：把 id 写入隐藏字段 #fCategory，并切换 active 样式。 */
+$('#catChips').addEventListener('click',e=>{
+  const b=e.target.closest('[data-cat]');if(!b)return;
+  $('#fCategory').value=b.dataset.cat;
+  $$('#catChips .chip').forEach(x=>x.classList.toggle('active',x===b));
+});
+/* 表单提交：先校验，全部通过才改 records。
+   任一校验失败就写错误文案到对应 .err 节点并 return —— 弹窗保持打开，
+   用户已填的内容不会丢失。 */
+$('#recordForm').addEventListener('submit',e=>{
+  e.preventDefault();clearErrors();            /* 阻止浏览器默认提交（刷新页面） */
+  const name=$('#fName').value.trim(), date=$('#fDate').value, cat=$('#fCategory').value;
+  const note=$('#fNote').value.trim(), raw=$('#fAmount').value.trim();
+  let ok=true;
+  if(!name){$('#eName').textContent='请输入消费名称';ok=false;}
+  else if(name.length>30){$('#eName').textContent='名称最多 30 个字';ok=false;}
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(date)||isNaN(parseYMD(date).getTime())){$('#eDate').textContent='请选择有效日期';ok=false;}
+  const num=Number(raw);
+  /* 正则先挡住 "1e3"、"1.234"、"−5" 等写法，再校验数值范围。 */
+  if(!/^\d+(\.\d{1,2})?$/.test(raw)||!Number.isFinite(num)||num<=0||num>1000000000){
+    $('#eAmount').textContent='请输入大于 0 的金额（最多两位小数，≤10 亿）';ok=false;
+  }
+  if(note.length>100){$('#eNote').textContent='备注最多 100 字';ok=false;}
+  if(!ok)return;
+  /* 关键换算：用户填的是「元」，内部一律存「分」。Math.round 消除浮点尾差。
+     wasEdit 要在 closeForm() 清空 editingId 之前取到，否则提示文案会判错。 */
+  const cents=Math.round(num*100), iso=new Date().toISOString(), wasEdit=!!editingId;
+  if(editingId){
+    const r=records.find(x=>x.id===editingId);
+    /* Object.assign 就地更新同一对象，id 与 createdAt 保持不变。
+       demo:false 表示"用户已接管这条数据"，示例数据横幅会相应隐藏。 */
+    if(r)Object.assign(r,{name,date,category:cat,note,amount:cents,demo:false,updatedAt:iso});
+  }else{
+    records.push({id:genId(),name,date,category:cat,note,amount:cents,demo:false,createdAt:iso,updatedAt:iso});
+  }
+  /* 保存后自动跳到记录所属月份与日期，让用户立刻看到刚改的格子。 */
+  selectedDate=date;const d=parseYMD(date);viewY=d.getFullYear();viewM=d.getMonth();
+  /* 标准四步：持久化 → 关窗 → 全量重绘 → 反馈。 */
+  save();closeForm();render();toast(wasEdit?'已更新记录':'已添加记录','success');
+});
+
+/* ==================== 9. 事件 ====================
+   日历格和明细都是 render() 动态生成的，给每个格子单独绑事件会在重绘后失效。
+   因此采用「事件委托」：监听器绑在稳定的父容器上，用 e.target.closest()
+   判断实际点中了哪类元素。重渲染后无需重新绑定，这是关键技巧。
+
+   日历格内的判定顺序（优先级从高到低）：
+     data-add    格子右上角的 ＋
+     data-edit   消费条目
+     data-expand 「+N 条」展开按钮
+     data-date   日期格本身（兜底：只选中）
+   顺序不能颠倒，否则点 ＋ 会被外层的日期格抢先处理。 */
+$('#calendarGrid').addEventListener('click',e=>{
+  const add=e.target.closest('[data-add]');
+  if(add){e.stopPropagation();openForm('add',add.dataset.add);return;}
+  const ed=e.target.closest('[data-edit]');
+  if(ed){e.stopPropagation();openForm('edit',null,ed.dataset.edit);return;}
+  const more=e.target.closest('[data-expand]');
+  if(more){e.stopPropagation();const ds=more.dataset.expand;expanded[ds]=!expanded[ds];selectedDate=ds;render();return;}
+  /* 兜底：点到格子的空白处只切换选中日期，右侧明细随之刷新。 */
+  const cell=e.target.closest('[data-date]');
+  if(cell){selectedDate=cell.dataset.date;render();}
+});
+$('#calendarGrid').addEventListener('dblclick',e=>{
+  if(e.target.closest('[data-edit],[data-add],[data-expand]'))return;
+  const cell=e.target.closest('[data-date]');if(cell)openForm('add',cell.dataset.date);
+});
+$('#calendarGrid').addEventListener('keydown',e=>{
+  if(e.key==='Enter'||e.key===' '){const cell=e.target.closest('[data-date]');if(cell){e.preventDefault();selectedDate=cell.dataset.date;render();}}
+});
+$('#recordList').addEventListener('click',e=>{
+  const ed=e.target.closest('[data-detail-edit]'),del=e.target.closest('[data-detail-del]');
+  if(ed)openForm('edit',null,ed.dataset.detailEdit);
+  if(del){const r=records.find(x=>x.id===del.dataset.detailDel);if(r)askConfirm('删除这条消费记录？','「'+r.name+'」'+money(r.amount)+'，删除后 5 秒内可撤销。',()=>doDelete(r.id),'删除');}
+});
+$('#addForSelected').onclick=()=>openForm('add',selectedDate);
+$('#deleteBtn').onclick=()=>{
+  const r=records.find(x=>x.id===editingId);if(!r)return;
+  askConfirm('删除这条消费记录？','「'+r.name+'」'+money(r.amount)+'，删除后 5 秒内可撤销。',()=>{closeForm();doDelete(r.id);},'删除');
+};
+$('#prevMonth').onclick=()=>{viewM--;if(viewM<0){viewM=11;viewY--;}render();};
+$('#nextMonth').onclick=()=>{viewM++;if(viewM>11){viewM=0;viewY++;}render();};
+$('#todayBtn').onclick=()=>{viewY=today.getFullYear();viewM=today.getMonth();selectedDate=ymd(today);render();};
+$('#cancelBtn').onclick=closeForm;
+$('#confirmCancel').onclick=closeConfirm;
+$('#confirmOk').onclick=()=>{const cb=confirmCb;closeConfirm();if(cb)cb();};
+$('#modalOverlay').addEventListener('mousedown',e=>{if(e.target.id==='modalOverlay')closeForm();});
+$('#confirmOverlay').addEventListener('mousedown',e=>{if(e.target.id==='confirmOverlay')closeConfirm();});
+$('#helpOverlay').addEventListener('mousedown',e=>{if(e.target.id==='helpOverlay')$('#helpOverlay').hidden=true;});
+$('#helpBtn').onclick=()=>{$('#helpOverlay').hidden=false;setTimeout(()=>$('#helpClose').focus(),0);};
+$('#helpClose').onclick=()=>{$('#helpOverlay').hidden=true;};
+function applyTheme(t){document.documentElement.dataset.theme=t;$('#themeBtn').textContent=t==='dark'?'☀️':'🌙';try{localStorage.setItem(THEME_KEY,t);}catch(e){}}
+$('#themeBtn').onclick=()=>applyTheme(document.documentElement.dataset.theme==='dark'?'light':'dark');
+applyTheme(document.documentElement.dataset.theme||'dark');
+function exportData(){
+  const data={version:1,exportedAt:new Date().toISOString(),records};
+  const url=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:'application/json'}));
+  const a=document.createElement('a');a.href=url;a.download='消费日历-'+prefix(viewY,viewM)+'.json';a.click();
+  setTimeout(()=>URL.revokeObjectURL(url),1000);toast('已导出 '+records.length+' 条记录','success');
+}
+$('#exportBtn').onclick=exportData;
+$('#importBtn').onclick=()=>$('#importFile').click();
+$('#importFile').addEventListener('change',async e=>{
+  const file=e.target.files[0];if(!file)return;
+  try{
+    const data=JSON.parse(await file.text()), arr=Array.isArray(data)?data:data.records;
+    if(!Array.isArray(arr))throw new Error('JSON 结构不正确');
+    const good=[],bad=[];
+    arr.forEach(r=>{if(validRecord(r))good.push({id:r.id,date:r.date,amount:r.amount,
+      name:String(r.name||'未命名').slice(0,30),category:catMap[r.category]?r.category:'other',
+      note:String(r.note||'').slice(0,100),demo:false,createdAt:r.createdAt||new Date().toISOString(),
+      updatedAt:r.updatedAt||new Date().toISOString()});else bad.push(r);});
+    const seen=new Set(),uniq=good.filter(r=>seen.has(r.id)?false:(seen.add(r.id),true));
+    if(!uniq.length)throw new Error('没有可用的记录');
+    askConfirm('导入数据','文件含 '+arr.length+' 条记录，其中 '+uniq.length+' 条有效'+(bad.length?'，跳过 '+bad.length+' 条无效数据':'')+'。导入将覆盖当前 '+records.length+' 条数据，是否继续？',()=>{
+      records=uniq;save();render();toast('已导入 '+uniq.length+' 条记录','success');
+    },'覆盖导入');
+  }catch(err){toast('导入失败：'+err.message,'danger');}
+  e.target.value='';
+});
+$('#clearBtn').onclick=()=>{
+  if(!records.length){toast('当前没有数据','info');return;}
+  askConfirm('清空全部数据？','将删除全部 '+records.length+' 条消费记录，此操作可在页面刷新前保留 5 秒撤销。',()=>{
+    const backup=records.slice();records=[];save();render();
+    const undo=()=>{records=backup;save();render();toast('已撤销清空','success');};lastUndo=undo;
+    toast('已清空全部记录','danger',undo,5000);
+  },'清空');
+};
+$('#clearDemo').onclick=()=>{
+  const n=records.filter(r=>r.demo).length;
+  records=records.filter(r=>!r.demo);save();render();toast('已清除 '+n+' 条示例数据','success');
+};
+document.addEventListener('keydown',e=>{
+  if(e.key==='Escape'){
+    if(!$('#helpOverlay').hidden)$('#helpOverlay').hidden=true;
+    else if(!$('#confirmOverlay').hidden)closeConfirm();
+    else if(!$('#modalOverlay').hidden)closeForm();
+    return;
+  }
+  if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='z'&&lastUndo){e.preventDefault();const f=lastUndo;lastUndo=null;f();return;}
+  if(!$('#modalOverlay').hidden||!$('#confirmOverlay').hidden||!$('#helpOverlay').hidden)return;
+  if(['INPUT','TEXTAREA','SELECT'].indexOf(document.activeElement.tagName)>=0)return;
+  const map={ArrowLeft:-1,ArrowRight:1,ArrowUp:-7,ArrowDown:7};
+  if(e.key in map){
+    e.preventDefault();const d=addDays(parseYMD(selectedDate),map[e.key]);
+    selectedDate=ymd(d);viewY=d.getFullYear();viewM=d.getMonth();render();
+  }
+  if(e.key==='n'||e.key==='N'){e.preventDefault();openForm('add',selectedDate);}
+});
+
+/* ==================== 10. 启动 ====================
+   顺序很关键：先确定 records，再 render，保证首屏绘制就有数据。
+   load() 的三种返回：
+     null  → 首次启动：注入示例数据并写入本地；
+     []    → 数据损坏/被清空：用空数组，页面照常渲染；
+     数组  → 正常恢复：顺手做一次规范化回写。 */
+const loaded=load();
+if(loaded===null){records=seed();save();}
+else{records=loaded||[];if(loaded&&loaded.length)save();}
+render();
+
+
+/* ==================================================================
+   移动端交互增强层（仅追加；复用上方全部原有函数与状态，不改业务逻辑）
+   ================================================================== */
+(function mobileLayer(){
+  var grid = $('#calendarGrid');
+  var overlay = $('#modalOverlay');
+  var form = $('#recordForm');
+  var toastBox = $('#toasts');
+  var longFired = false, longTimer = null;
+  var sx = 0, sy = 0, st = 0, moved = false, lpItem = null;
+
+  /* 触觉反馈：设备支持时轻震，不干扰不支持的浏览器 */
+  function buzz(pattern){ try{ if(navigator.vibrate) navigator.vibrate(pattern || 8); }catch(e){} }
+  function hideLoading(){ var l = document.querySelector('.m-loading'); if(l) l.remove(); }
+  function showLoading(text){
+    hideLoading();
+    var d = document.createElement('div');
+    d.className = 'm-loading';
+    d.innerHTML = '<div class="m-loading-card"><span class="m-spinner"></span><span>' + esc(text) + '</span></div>';
+    document.body.appendChild(d);
+    setTimeout(hideLoading, 4000);            /* 兜底：任何异常路径都不会卡住 */
+  }
+
+  /* ---------- A. 底部「记一笔」主按钮：一步直达 ---------- */
+  var fab = document.createElement('button');
+  fab.className = 'm-fab';
+  fab.type = 'button';
+  fab.setAttribute('aria-label', '为选中日期记一笔');
+  fab.innerHTML = '<span>＋</span><em>记一笔</em>';
+  fab.addEventListener('click', function(){ buzz(); openForm('add', selectedDate); });
+  document.body.appendChild(fab);
+
+  /* ---------- B. 表单快捷输入：常用金额 + 最近用过的名称 ---------- */
+  var moneyWrap = document.createElement('div');
+  moneyWrap.className = 'm-quick';
+  moneyWrap.innerHTML = '<p class="m-quick-title">常用金额（点一下填入）</p><div class="m-quick-row"></div>';
+  var amountRow = moneyWrap.querySelector('.m-quick-row');
+  [8, 15, 20, 30, 50, 100, 200].forEach(function(v){
+    var b = document.createElement('button');
+    b.type = 'button'; b.className = 'm-quick-chip'; b.textContent = '¥' + v;
+    b.addEventListener('click', function(){
+      $('#fAmount').value = String(v); buzz();
+      amountRow.querySelectorAll('.m-quick-chip').forEach(function(x){ x.style.borderColor = ''; });
+      b.style.borderColor = 'var(--accent)';
+    });
+    amountRow.appendChild(b);
+  });
+  $('#fAmount').closest('.field').insertAdjacentElement('afterend', moneyWrap);
+
+  var nameWrap = document.createElement('div');
+  nameWrap.className = 'm-quick';
+  nameWrap.innerHTML = '<p class="m-quick-title">最近记过（点一下自动填名称与分类）</p><div class="m-quick-row"></div>';
+  var nameRow = nameWrap.querySelector('.m-quick-row');
+  $('#fName').closest('.field').insertAdjacentElement('afterend', nameWrap);
+
+  function refreshQuickNames(){
+    var seen = Object.create(null), picked = [];
+    records.slice().sort(function(a, b){
+      return String(b.updatedAt || b.createdAt || '').localeCompare(String(a.updatedAt || a.createdAt || ''));
+    }).forEach(function(r){
+      if(!seen[r.name]){ seen[r.name] = r.category; picked.push(r); }
+    });
+    picked = picked.slice(0, 6);
+    nameRow.innerHTML = '';
+    if(!picked.length){ nameRow.innerHTML = '<span class="m-quick-empty">记过几笔后，这里会出现快捷名称</span>'; return; }
+    picked.forEach(function(r){
+      var b = document.createElement('button');
+      b.type = 'button'; b.className = 'm-quick-chip'; b.textContent = r.name;
+      b.addEventListener('click', function(){
+        $('#fName').value = r.name;
+        $('#fCategory').value = r.category;
+        $$('#catChips .chip').forEach(function(x){ x.classList.toggle('active', x.dataset.cat === r.category); });
+        buzz();
+      });
+      nameRow.appendChild(b);
+    });
+  }
+  /* 表单每次打开时刷新最近名称（监听 hidden 属性，无需改动 openForm） */
+  new MutationObserver(function(){
+    if(!overlay.hidden){ refreshQuickNames(); }
+  }).observe(overlay, { attributes:true, attributeFilter:['hidden'] });
+  refreshQuickNames();
+
+  /* 数字键盘 + 完成键，减少切换输入法的次数 */
+  $('#fAmount').setAttribute('inputmode', 'decimal');
+  $('#fName').setAttribute('enterkeyhint', 'done');
+  $('#fNote').setAttribute('enterkeyhint', 'done');
+
+  /* ---------- C. 手势：左右滑动切月 + 长按条目快捷操作 ---------- */
+  function clearLong(){ if(longTimer){ clearTimeout(longTimer); longTimer = null; } }
+
+  grid.addEventListener('pointerdown', function(e){
+    /* 每次按下先完整复位，避免上一次长按/滑动的状态遗留 */
+    sx = e.clientX; sy = e.clientY; st = Date.now();
+    moved = false; longFired = false; lpItem = null;
+    if(e.target.closest('.add-btn')) return;      /* ＋ 走原有点击逻辑 */
+    lpItem = e.target.closest('[data-edit]');
+    if(lpItem){
+      var id = lpItem.dataset.edit;
+      longTimer = setTimeout(function(){
+        longFired = true; buzz(18); openSheet(id);
+      }, 500);
+    }
+  }, { passive:true });
+
+  grid.addEventListener('pointermove', function(e){
+    if(Math.abs(e.clientX - sx) > 10 || Math.abs(e.clientY - sy) > 10){ moved = true; clearLong(); }
+  }, { passive:true });
+
+  grid.addEventListener('pointerup', function(e){
+    clearLong();
+    var dx = e.clientX - sx, dy = e.clientY - sy, dt = Date.now() - st;
+    /* 只在「空白区域起手 + 横向位移足够 + 非长按」时切月，避免误触 */
+    if(!lpItem && !longFired && Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.4 && dt < 900){
+      (dx < 0 ? $('#nextMonth') : $('#prevMonth')).click();
+      buzz(12);
+      toast(dx < 0 ? '已滑到下一个月' : '已滑到上一个月', 'info');
+    }
+  }, { passive:true });
+
+  grid.addEventListener('pointercancel', clearLong, { passive:true });
+  grid.addEventListener('pointerleave', clearLong, { passive:true });
+
+  /* 长按后屏蔽紧随其后的 click，避免同时打开编辑弹窗（捕获阶段优先于原有委托） */
+  grid.addEventListener('click', function(e){
+    if(longFired){ e.stopPropagation(); e.preventDefault(); longFired = false; }
+  }, true);
+
+  /* 底部快捷操作面板 */
+  function openSheet(id){
+    var r = records.find(function(x){ return x.id === id; });
+    if(!r) return;
+    var mask = document.createElement('div');
+    mask.className = 'm-sheet-mask';
+    mask.innerHTML =
+      '<div class="m-sheet" role="dialog" aria-modal="true">' +
+        '<h4>' + esc(r.name) + '</h4>' +
+        '<p>' + money(r.amount) + ' · ' + (catMap[r.category] || catMap.other).name + ' · ' + esc(r.date) + '</p>' +
+        '<button type="button" class="m-primary" data-act="edit">编辑这笔</button>' +
+        '<button type="button" class="m-danger" data-act="del">删除这笔</button>' +
+        '<button type="button" class="m-cancel" data-act="cancel">取消</button>' +
+      '</div>';
+    document.body.appendChild(mask);
+    function close(){ mask.remove(); }
+    mask.addEventListener('click', function(e){
+      var b = e.target.closest('[data-act]');
+      if(e.target === mask) { close(); return; }
+      if(!b) return;
+      var act = b.dataset.act;
+      close(); buzz();
+      if(act === 'edit') openForm('edit', null, id);
+      else if(act === 'del') askConfirm('删除这条消费记录？',
+        '「' + r.name + '」' + money(r.amount) + '，删除后 5 秒内可撤销。',
+        function(){ doDelete(id); }, '删除');
+    });
+  }
+
+  /* ---------- D. 反馈：加载 / 成功 / 失败 ---------- */
+  /* 监听 Toast 新增：补图标、触觉反馈、自动关闭加载遮罩（不改动原 toast 函数） */
+  var icons = { ok:'✓', error:'!', info:'i' };
+  new MutationObserver(function(muts){
+    muts.forEach(function(m){
+      Array.prototype.forEach.call(m.addedNodes, function(n){
+        if(n.nodeType !== 1 || !n.classList.contains('toast')) return;
+        var kind = n.classList.contains('danger') ? 'error' : (n.classList.contains('info') ? 'info' : 'ok');
+        var ic = document.createElement('i');
+        ic.className = 'm-toast-ic m-ic-' + kind; ic.textContent = icons[kind];
+        n.insertBefore(ic, n.firstChild);
+        buzz(kind === 'error' ? [15, 40, 15] : 10);
+        hideLoading();
+      });
+    });
+  }).observe(toastBox, { childList:true });
+
+  /* 表单校验失败：震动 + 自动聚焦第一个错误字段，让失败原因一眼可见 */
+  form.addEventListener('submit', function(){
+    setTimeout(function(){
+      var bad = $$('.field .err').filter(function(e){ return e.textContent.trim(); })[0];
+      if(!bad) return;
+      buzz([15, 40, 15]);
+      var input = bad.closest('.field').querySelector('input, textarea');
+      if(input){
+        input.focus();
+        try{ if(input.scrollIntoView) input.scrollIntoView({ block:'center', behavior:'smooth' }); }catch(e){}
+      }
+    }, 0);
+  }, true);
+
+  /* 导入文件：读取期间显示加载态，成功/失败 Toast 出现后自动消失 */
+  $('#importFile').addEventListener('change', function(e){
+    if(e.target.files && e.target.files.length) showLoading('正在读取文件…');
+  }, true);
+
+  /* 清空等危险操作的确认框弹出时，给出轻微触觉提示 */
+  document.addEventListener('pointerdown', function(e){
+    if(e.target.closest('#clearBtn, #deleteBtn, [data-detail-del]')) buzz(6);
+  }, { passive:true });
+
+  /* ---------- E. 手势提示 ---------- */
+  var foot = document.querySelector('.cal-foot');
+  if(foot) foot.insertAdjacentHTML('beforeend',
+    '<br><span class="m-tip">左右滑动切换月份 · 长按条目可快捷编辑 / 删除</span>');
+
+})();
+
+})();   /* IIFE 结束：所有变量都封装在私有作用域，不污染全局。 */
+</script>
+</body>
+</html>
